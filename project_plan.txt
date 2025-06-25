@@ -1,0 +1,526 @@
+# Project Plan: Cerebro CRM Platform
+
+## 1. Introduction and Overview
+
+Cerebro is a comprehensive Customer Relationship Management (CRM) platform designed to empower businesses in managing their sales, marketing, and customer support operations. The platform will differentiate itself through AI-powered insights, automated workflows, and seamless integrations with popular business applications, providing a holistic view of customer interactions and driving business growth.
+
+**Core Objectives:**
+*   Provide a centralized system for managing customer data, leads, opportunities, and support tickets.
+*   Automate repetitive tasks in sales, marketing, and support processes.
+*   Derive actionable insights from customer data using AI/ML.
+*   Enable real-time communication and collaboration across teams.
+*   Offer flexible integration capabilities with external services.
+
+## 2. System Architecture
+
+The Cerebro platform will adopt a microservices architecture, promoting scalability, resilience, and independent deployability. Services will communicate primarily via RESTful APIs and asynchronous messaging. A single monorepo strategy will be adopted initially for core services to streamline development and dependency management, with clear module separation. External integration services may reside in separate repositories if their complexity or independent lifecycle warrants it.
+
+**Technology Stack:**
+*   **Backend Services:** Python 3.10+
+    *   Web Framework: FastAPI (for high performance and easy API development)
+    *   ORM: SQLAlchemy with Alembic for migrations
+    *   Data Validation: Pydantic
+*   **Database:** PostgreSQL (for relational data storage, ACID compliance)
+*   **Caching:** Redis (for session management, API responses, frequently accessed data)
+*   **Message Broker:** RabbitMQ (for asynchronous tasks, inter-service communication events)
+*   **AI/ML:** Python (scikit-learn, spaCy, TensorFlow/PyTorch where specific models are needed)
+*   **Frontend:** React with TypeScript, using Vite for bundling, Tailwind CSS for styling.
+*   **Containerization:** Docker
+*   **Orchestration:** Kubernetes (EKS on AWS)
+*   **Cloud Provider:** Amazon Web Services (AWS)
+*   **CI/CD:** GitHub Actions
+*   **Monitoring & Logging:** Prometheus, Grafana, ELK Stack (Elasticsearch, Logstash, Kibana)
+*   **Authentication:** OAuth 2.0 / JWT tokens
+*   **API Gateway:** Nginx (or AWS API Gateway if fully managed)
+
+**Architectural Diagram (Conceptual):**
+
+```
++--------------------+        +---------------------+        +--------------------+
+|      Frontend      |<------>|     API Gateway     |<------>|     Load Balancer  |
+| (React Application)|        |  (Nginx/AWS API GW) |        |                    |
++--------------------+        +---------------------+        +--------------------+
+       ^                            |          |                      |
+       |                            |          |                      |
+       |                            v          v                      v
+       |                  +---------------------------------------------------+
+       |                  |                 Kubernetes Cluster                |
+       |                  |  +---------------------------------------------+  |
+       |                  |  |          Microservices (FastAPI)          |  |
+       |                  |  |  - User Management    - Sales (Leads, Deals)|  |
+       |                  |  |  - Contact Management - Marketing (Campaigns)|  |
+       |                  |  |  - Support (Tickets)  - AI Insights SVC     |  |
+       |                  |  |  - Workflow Automation- Integration Manager |  |
+       |                  |  +---------------------------------------------+  |
+       |                  |                                                   |
+       |                  |  +---------------------------------------------+  |
+       |                  |  |           Data Stores                       |  |
+       |                  |  |  - PostgreSQL (Primary DB)                |  |
+       |                  |  |  - Redis (Cache, Sessions)                |  |
+       |                  |  |  - S3 (File Storage)                      |  |
+       |                  |  +---------------------------------------------+  |
+       |                  |                                                   |
+       |                  |  +---------------------------------------------+  |
+       |                  |  |           Message Broker                    |  |
+       |                  |  |  - RabbitMQ (Task Queues, Event Bus)      |  |
+       |                  |  +---------------------------------------------+  |
+       |                  +---------------------------------------------------+
+       |                                    |    ^
+       |                                    |    |
+       +------------------------------------+    |
+                                            |    |
+                                            |    | (Async communication)
+                                            v    |
+                                        External Integrations
+                                        (e.g., Email, SMS, Payment Gateways,
+                                        Other CRMs, Marketing Automation)
+```
+
+## 3. Core Components (Microservices)
+
+Each core component will be implemented as a separate microservice, adhering to the principles outlined.
+
+### 3.1. User & Authentication Service
+
+*   **Core Functionality:** Manages user accounts, roles, permissions, authentication, and authorization.
+*   **Technical Design & Architecture:**
+    *   FastAPI microservice.
+    *   PostgreSQL for storing user data, roles, and permissions.
+    *   JWT (JSON Web Tokens) for stateless authentication.
+    *   OAuth 2.0 for external identity providers (e.g., Google Sign-in) if required.
+    *   Role-Based Access Control (RBAC) model.
+*   **User Experience:** User registration, login, password reset, profile management, team management.
+*   **Data Management:**
+    *   `users` table: `id`, `username`, `email`, `password_hash`, `salt`, `is_active`, `created_at`, `updated_at`.
+    *   `roles` table: `id`, `name` (`admin`, `sales_manager`, `sales_rep`, `marketing_specialist`, `support_agent`).
+    *   `user_roles` join table: `user_id`, `role_id`.
+    *   `permissions` table: `id`, `name` (`can_read_leads`, `can_edit_deals`, `can_manage_users`).
+    *   `role_permissions` join table: `role_id`, `permission_id`.
+    *   Redis for storing invalidated JWT tokens (blacklist).
+*   **Error Handling & Edge Cases:** Invalid credentials, duplicate email/username, unauthorized access attempts, token expiration.
+*   **Security Considerations:** Password hashing (Bcrypt/Argon2), JWT signing with strong secrets, input validation, rate limiting on login attempts, secure cookie management (if sessions are used for frontend).
+*   **Performance & Scalability:** JWTs for stateless auth reduce database lookups per request. Caching user roles/permissions in Redis for frequent access.
+*   **Deployment & Infrastructure:** Docker container, deployed to Kubernetes.
+*   **Test-Driven Development Verification:**
+    *   **Immediate:** Manually test login/registration endpoints with `curl` or Postman.
+    *   **Unit Tests:**
+        *   Test password hashing utility functions.
+        *   Test JWT generation and validation logic.
+        *   Test user creation, retrieval, and update logic in isolation using in-memory substitutes for DB.
+    *   **Integration Tests:**
+        *   Test API endpoints (e.g., `/auth/login`, `/auth/register`, `/users/me`) using a test database.
+        *   Verify RBAC enforcement by testing requests with different user roles.
+*   **Testing Strategy:**
+    *   **Unit Tests:** `pytest` library. Test individual functions (e.g., `verify_password`, `create_access_token`).
+    *   **Integration Tests:** `pytest` with `httpx` (for HTTP requests) and `TestClient` from FastAPI. Use `pytest-mock` only for external dependencies like a real OAuth provider, but prefer in-memory test databases (e.g., SQLite for simple cases, or a spun-up PostgreSQL container for accuracy).
+    *   **Mocking Strategy:** Avoid mocking internal service logic unless strictly necessary (e.g., external OAuth calls). Use mock objects for database connectivity or external services during unit tests. For integration tests, use real database instances (test containers or a dedicated test DB).
+*   **Monitoring & Logging:** Log authentication successes/failures, unauthorized attempts. Metrics for login success rate, token validation time, user creation rate.
+*   **Dependencies:** PostgreSQL, Redis.
+
+### 3.2. Contact & Company Management Service
+
+*   **Core Functionality:** Manages contacts (individuals) and companies, linking them, and storing relevant CRM data.
+*   **Technical Design & Architecture:**
+    *   FastAPI microservice.
+    *   PostgreSQL for storing contact and company records, associated activities, and custom fields.
+*   **User Experience:** Create, read, update, delete contacts/companies; search and filter; link contacts to companies; add notes and activities.
+*   **Data Management:**
+    *   `contacts` table: `id`, `first_name`, `last_name`, `email`, `phone`, `title`, `company_id (FK)`, `owner_id (FK to users)`, `status`, `created_at`, `updated_at`.
+    *   `companies` table: `id`, `name`, `industry`, `website`, `phone`, `address`, `owner_id (FK to users)`, `created_at`, `updated_at`.
+    *   `activities` table: `id`, `type` (`call`, `email`, `meeting`), `notes`, `contact_id (FK)`, `company_id (FK)`, `user_id (FK)`, `due_date`, `status`, `created_at`, `updated_at`.
+    *   `custom_fields` table: Polymorphic relationship to `contacts` or `companies` for flexible data schema.
+*   **Error Handling & Edge Cases:** Invalid contact/company data, duplicate entries, attempts to link non-existent entities.
+*   **Security Considerations:** RBAC enforcement (e.g., sales rep can only see their own contacts or contacts belonging to their team). Data validation for all incoming requests.
+*   **Performance & Scalability:** Indexing on frequently searched fields (email, name, company_id). Pagination for list views. Caching frequently accessed contact/company profiles in Redis.
+*   **Deployment & Infrastructure:** Docker container, deployed to Kubernetes.
+*   **Test-Driven Development Verification:**
+    *   **Immediate:** Create a contact via API endpoint, then fetch it.
+    *   **Unit Tests:** Test data validation logic using Pydantic models. Test ORM operations (create, read, update, delete) in isolation from the database by mocking the database session or using in-memory ORM stubs.
+    *   **Integration Tests:** Test full API endpoints (e.g., `/contacts/`, `/contacts/{id}`, `/companies/`). Verify linking of contacts to companies.
+*   **Testing Strategy:**
+    *   **Unit Tests:** `pytest`. Test service functions (e.g., `create_contact`, `get_contact_by_id`). Use simple dict objects or Pydantic instances directly for input.
+    *   **Integration Tests:** `pytest`, `httpx`, `TestClient`. Use a dedicated test database (PostgreSQL container or SQLite in-memory for faster tests if schema compatibility is high). Populate test data using factories (e.g., `Faker` library).
+    *   **Mocking Strategy:** Very minimal. Mock external calls if any (e.g., a geo-coding service for addresses). Otherwise, use real service components.
+*   **Monitoring & Logging:** Log CRUD operations, API response times. Metrics for contact/company creation rate, search query performance.
+*   **Dependencies:** PostgreSQL, Redis. Calls User & Auth Service for owner validation.
+
+### 3.3. Sales CRM Service (Leads, Deals, Opportunities)
+
+*   **Core Functionality:** Manages the sales pipeline, from lead capture to deal closure. Track stages, values, and sales activities.
+*   **Technical Design & Architecture:**
+    *   FastAPI microservice.
+    *   PostgreSQL for leads (`status`, `source`), opportunities (`stage`, `probability`), and deals (`amount`, `close_date`).
+*   **User Experience:** Create/manage leads, convert leads to opportunities, track deal progress through stages, view sales dashboards, assign leads/deals to sales reps.
+*   **Data Management:**
+    *   `leads` table: `id`, `contact_id (FK)`, `status` (`new`, `qualified`, `disqualified`), `source`, `assigned_to (FK to users)`, `created_at`, `updated_at`.
+    *   `opportunities` table: `id`, `lead_id (FK)`, `contact_id (FK)`, `company_id (FK)`, `name`, `amount`, `stage` (`qualification`, `proposal`, `negotiation`, `closed_won`, `closed_lost`), `probability`, `expected_close_date`, `assigned_to (FK to users)`, `created_at`, `updated_at`.
+    *   `deals` table: `id`, `opportunity_id (FK)`, `close_date`, `amount`, `status` (`won`, `lost`), `created_at`, `updated_at`.
+    *   Links to `activities` table in Contact/Company service.
+*   **Error Handling & Edge Cases:** Invalid stage transitions, negative amounts, unassigned leads/deals.
+*   **Security Considerations:** RBAC (sales reps only see their own leads/deals, sales managers see team's). Data validation.
+*   **Performance & Scalability:** Indexing on `stage`, `assigned_to`, `close_date`. Aggregations for dashboard views.
+*   **Deployment & Infrastructure:** Docker container, deployed to Kubernetes.
+*   **Test-Driven Development Verification:**
+    *   **Immediate:** Create a lead, then convert it to an opportunity.
+    *   **Unit Tests:** Test state machine logic for lead conversion or opportunity stage changes. Test calculation of expected revenue from opportunities.
+    *   **Integration Tests:** Create a lead, check it exists. Convert it to an opportunity, verify the lead status changes and opportunity is created. Close a deal, verify related opportunity status.
+*   **Testing Strategy:**
+    *   **Unit Tests:** `pytest`. Test business logic functions (e.g., `convert_lead_to_opportunity`, `update_opportunity_stage`). Provide plain Python dictionaries as input.
+    *   **Integration Tests:** `pytest`, `httpx`, `TestClient`. Use a test database. End-to-end flow testing from lead creation to deal closure.
+    *   **Mocking Strategy:** Mock calls to Contact/Company service if necessary, otherwise use test instances of these services if running an integrated test suite. Prefer returning simple predefined data for these mocked calls.
+*   **Monitoring & Logging:** Log lead conversions, deal won/lost events. Metrics for sales pipeline value, conversion rates, deal velocity.
+*   **Dependencies:** PostgreSQL. Calls Contact & Company Service for `contact_id`/`company_id` validation. Calls User & Auth Service for `assigned_to` validation.
+
+### 3.4. Marketing & Campaign Management Service
+
+*   **Core Functionality:** Enables creation and execution of marketing campaigns (email, SMS), customer segmentation, and tracking campaign performance.
+*   **Technical Design & Architecture:**
+    *   FastAPI microservice.
+    *   PostgreSQL for campaigns, segments, and tracking data.
+    *   Integration with external email/SMS providers (e.g., SendGrid, Twilio).
+    *   RabbitMQ for asynchronous sending of emails/SMS.
+*   **User Experience:** Create marketing campaigns, define target segments, design email templates, schedule sends, view campaign analytics (open rates, click-through rates).
+*   **Data Management:**
+    *   `campaigns` table: `id`, `name`, `type`, `status`, `start_date`, `end_date`, `created_at`, `updated_at`.
+    *   `segments` table: `id`, `name`, `criteria_json` (e.g., customers in specific industry, leads with specific status), `created_at`, `updated_at`.
+    *   `campaign_recipients` join table: `campaign_id`, `contact_id`, `status` (`sent`, `opened`, `clicked`).
+    *   `emails` table (or similar for SMS): `id`, `campaign_id`, `template_id`, `subject`, `body`, `sent_at`.
+    *   `email_templates` table: `id`, `name`, `subject_template`, `body_template`.
+*   **Error Handling & Edge Cases:** Invalid segment criteria, failed sends from external providers, missing email templates.
+*   **Security Considerations:** RBAC (marketing specialists can manage campaigns). Input validation for segment criteria and template content.
+*   **Performance & Scalability:** Asynchronous sending to external providers using RabbitMQ. Efficient segmentation queries.
+*   **Deployment & Infrastructure:** Docker container, deployed to Kubernetes.
+*   **Test-Driven Development Verification:**
+    *   **Immediate:** Create a campaign, define a simple segment, and initiate a test send to a single contact.
+    *   **Unit Tests:** Test segment filtering logic against a set of dummy contacts. Test email template rendering with data.
+    *   **Integration Tests:** Test campaign creation, verify it's stored. Test segment application by sending to a test contact list and asserting correct recipient count. Verify asynchronous message is placed in RabbitMQ.
+*   **Testing Strategy:**
+    *   **Unit Tests:** `pytest`. Test `segment_contacts` function that applies criteria. Test `render_template` function.
+    *   **Integration Tests:** `pytest`, `httpx`, `TestClient`. Use a test database. Test that campaigns can be linked to segments. Test that sending a campaign queues messages by inspecting RabbitMQ (or a mocked RabbitMQ client).
+    *   **Mocking Strategy:** Mock calls to external email/SMS providers. Mock RabbitMQ client for unit tests to ensure messages are 'sent' to the queue without needing a live broker.
+*   **Monitoring & Logging:** Log campaign sends, delivery failures, open/click rates (via webhooks from providers). Metrics for active campaigns, emails sent.
+*   **Dependencies:** PostgreSQL, RabbitMQ, external email/SMS APIs (e.g., SendGrid/Twilio). Calls Contact & Company Service for contact data.
+
+### 3.5. Customer Support Service (Tickets)
+
+*   **Core Functionality:** Manages customer support tickets, their status, assignments, and communication.
+*   **Technical Design & Architecture:**
+    *   FastAPI microservice.
+    *   PostgreSQL for tickets, messages, and priority rules.
+    *   Integration with email (inbound/outbound) for ticket creation/updates.
+    *   Potentially integration with chat platforms.
+*   **User Experience:** Create/view tickets, assign tickets to agents, track ticket status, add internal notes, communicate with customers, view ticket history.
+*   **Data Management:**
+    *   `tickets` table: `id`, `subject`, `description`, `contact_id (FK)`, `company_id (FK)`, `assigned_to (FK to users)`, `status` (`open`, `pending`, `closed`), `priority` (`low`, `medium`, `high`, `urgent`), `category`, `created_at`, `updated_at`, `closed_at`.
+    *   `ticket_messages` table: `id`, `ticket_id (FK)`, `user_id (FK)`, `type` (`customer_reply`, `agent_note`), `message_body`, `created_at`.
+    *   `attachments` table: for files related to tickets.
+*   **Error Handling & Edge Cases:** Invalid ticket status transitions, unassigned tickets, failure to send customer notifications.
+*   **Security Considerations:** RBAC (support agents see their tickets/team tickets, sales reps can view related tickets). Data validation.
+*   **Performance & Scalability:** Indexing on `status`, `assigned_to`, `priority`. Efficient search on ticket subject/description.
+*   **Deployment & Infrastructure:** Docker container, deployed to Kubernetes.
+*   **Test-Driven Development Verification:**
+    *   **Immediate:** Create a ticket, assign it, then add a message to it.
+    *   **Unit Tests:** Test ticket routing/assignment logic based on rules. Test status transition validity.
+    *   **Integration Tests:** Test full API flow: create ticket, update status, add message, assign agent. Verify notifications (via mocked external service).
+*   **Testing Strategy:**
+    *   **Unit Tests:** `pytest`. Test `assign_ticket_to_agent` logic based on load or skill.
+    *   **Integration Tests:** `pytest`, `httpx`, `TestClient`. Use test database. Verify that all fields are correctly stored and retrieved. Test various ticket status flows (e.g., open -> pending -> closed).
+    *   **Mocking Strategy:** Mock external notification services (email, SMS). Mock calls to Contact/Company service.
+*   **Monitoring & Logging:** Log ticket creation, updates, closures. Metrics for average resolution time, tickets created/closed per day, agent workload.
+*   **Dependencies:** PostgreSQL. Calls Contact & Company Service, User & Auth Service. External email service for notifications.
+
+### 3.6. Workflow Automation Service
+
+*   **Core Functionality:** Allows users to define automated workflows based on triggers (e.g., new lead, deal won, ticket closed) and actions (e.g., send email, create task, move to next stage, update a field).
+*   **Technical Design & Architecture:**
+    *   FastAPI microservice.
+    *   PostgreSQL for storing workflow definitions.
+    *   RabbitMQ for receiving events (triggers) from other services and queuing actions.
+    *   Workflow engine: Potentially a simple rule engine built-in or a lightweight external library if complexity grows.
+*   **User Experience:** Visual workflow builder (simple drag-and-drop or form-based), trigger selection, action configuration.
+*   **Data Management:**
+    *   `workflows` table: `id`, `name`, `trigger_type`, `trigger_config_json`, `actions_config_json`, `is_active`, `created_at`, `updated_at`.
+    *   `workflow_runs` table: `id`, `workflow_id`, `status`, `triggered_by`, `run_log_json`, `created_at`.
+*   **Error Handling & Edge Cases:** Invalid workflow definitions, failed actions (e.g., API call to another service fails), infinite loops (prevent via limits).
+*   **Security Considerations:** RBAC (admin/power users can define workflows). Input validation for workflow steps to prevent malicious actions.
+*   **Performance & Scalability:** Asynchronous processing of workflow executions via RabbitMQ.
+*   **Deployment & Infrastructure:** Docker container, deployed to Kubernetes.
+*   **Test-Driven Development Verification:**
+    *   **Immediate:** Define a simple workflow (e.g., "On new Lead, send notification"), trigger it manually, and observe the notification.
+    *   **Unit Tests:** Test parsing of workflow definitions. Test individual action execution (e.g., `send_email_action`, `update_record_action`).
+    *   **Integration Tests:** Test a complete workflow: simulate a trigger event (publish to RabbitMQ), verify the workflow service processes it, and the defined actions are executed (e.g., check if a new task is created in Sales CRM Service, or an email is queued).
+*   **Testing Strategy:**
+    *   **Unit Tests:** `pytest`. Test the workflow parsing and execution engine logic against various workflow JSON configurations.
+    *   **Integration Tests:** `pytest`, `httpx`, `TestClient`. Use a test database for workflow definitions. Test the interaction with RabbitMQ (publishing/consuming messages). Mock downstream services that actions interact with.
+    *   **Mocking Strategy:** Mock RabbitMQ consumer/publisher for unit tests. For integration tests, use `testcontainers` to spin up a RabbitMQ instance. Mock external services like email senders, or other Cerebro microservices that workflow actions call.
+*   **Monitoring & Logging:** Log workflow trigger events, action successes/failures, workflow run duration. Metrics for workflows executed per minute, failed workflow runs.
+*   **Dependencies:** PostgreSQL, RabbitMQ. Calls to other Cerebro services' APIs (Sales CRM, Contact, Support, User Mgmt) for executing actions.
+
+### 3.7. AI Insights Service
+
+*   **Core Functionality:** Processes CRM data to generate actionable insights, predictions, and recommendations for sales, marketing, and support.
+*   **Technical Design & Architecture:**
+    *   Python FastAPI microservice.
+    *   Utilizes scikit-learn for common ML tasks (classification, regression, clustering).
+    *   Potentially TensorFlow/PyTorch for more complex NLP tasks (e.g., sentiment analysis on support messages).
+    *   PostgreSQL for storing processed insights or features.
+    *   Data Pipeline: Asynchronous processing of data changes (e.g., new contact, deal updates) via RabbitMQ events for model retraining or real-time inferences.
+    *   Model Serving: FastAPI endpoint for real-time inference requests.
+*   **Examples of AI Features:**
+    *   Lead Scoring: Predict conversion probability of leads.
+    *   Churn Prediction: Identify customers at risk of churning.
+    *   Sales Forecasting: Predict future sales based on pipeline data.
+    *   Sentiment Analysis: Analyze customer interactions (emails, chat) for sentiment.
+    *   Product Recommendation: Suggest products based on customer history.
+    *   Next Best Action: Recommend next steps for sales reps or support agents.
+*   **User Experience:** Dashboards displaying insights, predictive scores on lead/deal views, recommendations integrated into activity feeds.
+*   **Data Management:**
+    *   `lead_scores` table: `lead_id (FK)`, `score`, `prediction_date`, `model_version`.
+    *   `customer_churn_risk` table: `contact_id (FK)`, `risk_score`, `prediction_date`, `model_version`.
+    *   `sentiment_scores` table: `message_id (FK)`, `sentiment` (`positive`, `negative`, `neutral`), `confidence`.
+    *   Requires read access to data from other services (Contact, Sales, Support).
+*   **Error Handling & Edge Cases:** Model prediction errors, data quality issues affecting insights, unable to retrieve source data.
+*   **Security Considerations:** Access to sensitive data for model training/inference must be strictly controlled (Principle of Least Privilege). Data anonymization/masking for training if sensitive.
+*   **Performance & Scalability:**
+    *   Offline model training.
+    *   Batch inference for scheduled insights.
+    *   Optimized real-time inference endpoints.
+    *   Leverage vector databases or specialized ML platforms if needed for very high-volume/complex models.
+*   **Deployment & Infrastructure:** Docker container, deployed to Kubernetes. Separate ML pipelines (e.g., MLflow, Kubeflow components) may be considered later for full ML lifecycle management.
+*   **Test-Driven Development Verification:**
+    *   **Immediate:** Submit a dummy data point to a prediction endpoint (e.g., lead data to lead scoring model) and verify valid output format.
+    *   **Unit Tests:** Test data preprocessing functions. Test integrity of feature engineering. Test model loading and basic inference on simple, fixed inputs.
+    *   **Integration Tests:** Feed simulated CRM events (e.g., new lead event from RabbitMQ) and verify the AI service processes them, generates a score, and stores it correctly. Test API endpoint for retrieving insights.
+*   **Testing Strategy:**
+    *   **Unit Tests:** `pytest`, `numpy`, `pandas`. Test individual ML utility functions, feature transformers. Mock external data dependencies.
+    *   **Integration Tests:** `pytest`, `httpx`, `TestClient`. Test the model serving API with sample data. Test asynchronous data processing. Use a dedicated test database to store generated insights.
+    *   **Mocking Strategy:** Mock dependencies on other services for data retrieval. For model testing, use small, pre-trained dummy models or mock prediction outputs for unit tests. For integration tests, use a real (though potentially smaller) trained model.
+*   **Monitoring & Logging:** Log model inference requests, data quality issues, model drift (if MLOps mature). Metrics for prediction latency, model error rates.
+*   **Dependencies:** PostgreSQL, RabbitMQ (for data events). Reads from other Cerebro service databases (likely via dedicated read-replicas or specific query services). Python ML libraries.
+
+### 3.8. Integration Manager Service
+
+*   **Core Functionality:** Provides a standardized way to connect Cerebro with external business applications (e.g., Google Workspace, Microsoft 365, accounting software, social media platforms). Manages integration configurations, token refresh, and data synchronization.
+*   **Technical Design & Architecture:**
+    *   FastAPI microservice.
+    *   PostgreSQL for storing integration configurations, OAuth tokens, and sync history.
+    *   RabbitMQ for asynchronous data synchronization tasks.
+    *   Modular design, allowing new integrations to be added as plugins/modules. Each major integration (e.g., Google Calendar, Gmail, Slack) might be its own sub-module or even a dedicated microservice if complex.
+*   **User Experience:** UI for managing connected apps, authorizing integrations, configuring sync preferences.
+*   **Data Management:**
+    *   `integrations` table: `id`, `user_id (FK)`, `app_name`, `auth_type`, `config_json`, `is_active`, `created_at`.
+    *   `oauth_tokens` table: `id`, `integration_id (FK)`, `access_token`, `refresh_token`, `expires_at`.
+    *   `sync_jobs` table: `id`, `integration_id`, `job_type`, `status`, `last_run`, `next_run`, `details_json`.
+*   **Error Handling & Edge Cases:** Failed OAuth handshake, expired tokens, API rate limits from external services, data conflicts during sync.
+*   **Security Considerations:** Encryption of access tokens at rest. Secure handling of client secrets. Strict OAuth 2.0 implementation. Input validation for webhook URLs.
+*   **Performance & Scalability:** Asynchronous background sync jobs. Rate limiting for external API calls.
+*   **Deployment & Infrastructure:** Docker container, deployed to Kubernetes.
+*   **Test-Driven Development Verification:**
+    *   **Immediate:** Configure a simple integration (e.g., Google Calendar read-only), and verify it fetches events.
+    *   **Unit Tests:** Test OAuth token refresh logic. Test parsing of incoming webhooks. Test data mapping between Cerebro and external app data models.
+    *   **Integration Tests:** Complete OAuth flow (using test credentials if possible), initiate a sync job and verify data is pulled/pushed to/from a mocked external service.
+*   **Testing Strategy:**
+    *   **Unit Tests:** `pytest`. Test `refresh_oauth_token` function, `map_google_event_to_activity` function.
+    *   **Integration Tests:** `pytest`, `httpx`, `TestClient`. Use a test database for integration configs. Mock external APIs using `responses` or `HTTPXMock` libraries to simulate various API responses (success, error, rate limit). Test asynchronous sync jobs by publishing to RabbitMQ and verifying downstream effects.
+    *   **Mocking Strategy:** Heavily mock external APIs. For OAuth flows, use a mock OAuth provider or a pre-recorded sequence of requests/responses. Use `testcontainers` for RabbitMQ.
+*   **Monitoring & Logging:** Log integration failures, token expirations, sync job status. Metrics for active integrations, sync success rates, API call counts to external services.
+*   **Dependencies:** PostgreSQL, RabbitMQ, external APIs (Google, Microsoft, Twilio, accounting software APIs, marketing automation APIs). Calls other Cerebro services to push/pull data (Contact, Sales, Support, Workflow).
+
+## 4. User Experience (Frontend Application)
+
+*   **Core Functionality:** Single Page Application (SPA) providing a rich, interactive user interface for all CRM capabilities.
+*   **Technical Design & Architecture:**
+    *   React 18+ with TypeScript.
+    *   Vite for fast development and build.
+    *   Tailwind CSS for utility-first styling.
+    *   React Router for navigation.
+    *   React Query (TanStack Query) for data fetching, caching, and synchronization.
+    *   State Management: React Context API or Zustand/Jotai for global state.
+*   **User Experience:**
+    *   **Dashboard:** Overview of key metrics (sales pipeline, new leads, open tickets).
+    *   **Navigation:** Intuitive sidebar navigation.
+    *   **CRUD Interfaces:** Forms for creating/editing contacts, companies, leads, deals, tickets, campaigns.
+    *   **List Views:** Table-based views with filtering, sorting, and pagination.
+    *   **Detail Views:** Dedicated pages for individual contacts, companies, deals, tickets with related activities, notes, and history.
+    *   **Workflow Builder:** Intuitive interface for defining automated workflows.
+    *   **Integration Settings:** UI for connecting and managing third-party apps.
+    *   **Notifications:** In-app notifications for alerts and updates.
+    *   **Responsive Design:** Optimized for desktop browsers primarily, with consideration for tablet usage.
+    *   **Accessibility:** Adherence to WCAG guidelines for keyboard navigation, ARIA attributes.
+*   **Error Handling & Edge Cases:** Display user-friendly error messages for API failures, network issues, invalid input. Form validation.
+*   **Security Considerations:** Secure API calls using JWT tokens (stored in HttpOnly cookies or localStorage with care), CSRF protection, input validation on the client-side (backed by server-side validation).
+*   **Performance & Scalability:** Code splitting, lazy loading components, optimized image loading, efficient data fetching with React Query.
+*   **Deployment & Infrastructure:** Statically served from an S3 bucket via CloudFront (CDN) for low latency.
+*   **Test-Driven Development Verification:**
+    *   **Immediate:** Manually click through main navigation, verify pages load. Submit a simple form (e.g., create contact) and confirm data submission visually.
+    *   **Unit Tests:** Test individual React components for rendering without crashing, prop handling. Test utility functions (e.g., date formatting).
+    *   **Integration Tests:** Simulate user interactions (button clicks, form submissions) and verify state changes, API calls (mocked), and UI updates.
+    *   **End-to-End Tests:** Automate a critical user flow (e.g., login -> create lead -> convert to opportunity -> view pipeline dashboard).
+*   **Testing Strategy:**
+    *   **Unit Tests:** `Jest` and `React Testing Library`. Test components in isolation.
+    *   **Integration Tests:** `Jest` and `React Testing Library`. Render components with mocked API calls and simulate user events.
+    *   **End-to-End Tests:** `Cypress` or `Playwright`. Focus on critical user journeys.
+    *   **Mocking Strategy:** `msw` (Mock Service Worker) for mocking API endpoints during development and testing environments.
+*   **Monitoring & Logging:** Client-side error logging (e.g., Sentry), performance monitoring (e.g., Lighthouse, custom metrics).
+
+## 5. Data Management (General)
+
+*   **Database:** PostgreSQL 14+ will be the primary data store for all microservices. Each service will ideally have its own dedicated schema within a shared database instance, or even its own database instance for complete isolation (configured through environment variables).
+*   **Schema Design:** Follow best practices (normalization, proper indexing, foreign keys for referential integrity). Managed with Alembic migrations.
+*   **Caching:** Redis for distributed caching across services, session management, and rate limiting.
+*   **File Storage:** AWS S3 for storing files (attachments, campaign assets).
+*   **Data Migration:** Alembic for database schema migrations. Data migration scripts for complex data transformations between versions.
+*   **Backup & Restore:** Automated daily backups of PostgreSQL (e.g., AWS RDS snapshots), S3 versioning.
+*   **Replication:** PostgreSQL read replicas for scaling read-heavy workloads.
+
+## 6. Error Handling & Edge Cases (General)
+
+*   **API Standardization:** Use consistent HTTP status codes (2xx for success, 4xx for client errors, 5xx for server errors).
+*   **Structured Errors:** API responses for errors should be standardized (e.g., JSON payload with `code`, `message`, `details`).
+*   **Input Validation:** Strict validation at API endpoints using Pydantic.
+*   **Service Resilience:** Implement retries with exponential backoff for transient failures when calling other services or external APIs. Circuit breakers to prevent cascading failures.
+*   **Idempotency:** Design public APIs to be idempotent where applicable (e.g., repeated POST requests for creating a resource should only create it once).
+*   **Graceful Degradation:** Where possible, design features to degrade gracefully if a dependency is unavailable (e.g., display cached data if real-time update fails).
+*   **Dead Letter Queues (DLQ):** For RabbitMQ, use DLQs to capture messages that cannot be processed successfully, allowing for later inspection and reprocessing.
+
+## 7. Security Considerations (General)
+
+*   **Authentication & Authorization:** Covered in User & Authentication Service.
+*   **Data Encryption:**
+    *   **At Rest:** PostgreSQL data encrypted using AWS KMS. S3 data encrypted.
+    *   **In Transit:** All inter-service communication and client-server communication via HTTPS/TLS.
+*   **Input Validation:** Comprehensive server-side validation.
+*   **API Security:** Rate limiting, API key management for external integrations.
+*   **Vulnerability Scanning:** Regularly scan dependencies for known vulnerabilities (e.g., Snyk, Dependabot). Use static analysis tools (e.g., Bandit for Python).
+*   **Secrets Management:** Use Kubernetes Secrets, AWS Secrets Manager, or HashiCorp Vault for managing sensitive credentials. Avoid hardcoding secrets.
+*   **Least Privilege:** Grant services and users only the minimum necessary permissions.
+*   **Logging & Auditing:** Comprehensive logging of security-relevant events.
+*   **Compliance:** Plan for GDPR/CCPA compliance regarding data privacy and user rights.
+
+## 8. Performance & Scalability (General)
+
+*   **Microservices:** Enables horizontal scaling of individual services based on demand.
+*   **Load Balancing:** Kubernetes Ingress and AWS ALB for distributing traffic.
+*   **Caching:** Redis for frequently accessed data, reducing database load.
+*   **Asynchronous Processing:** RabbitMQ for background tasks and event-driven architecture, decoupling processes and improving responsiveness.
+*   **Database Optimization:** Proper indexing, query optimization, connection pooling (PgBouncer). Read replicas for read-heavy services.
+*   **Monitoring:** Continuous monitoring to identify performance bottlenecks.
+*   **Resource Allocation:** Proper CPU/memory limits and requests for Kubernetes pods.
+*   **Code Efficiency:** Write performant code, optimize algorithms.
+
+## 9. Deployment & Infrastructure
+
+*   **Infrastructure as Code (IaC):** Terraform or AWS CloudFormation for provisioning and managing all AWS resources (VPC, EKS, RDS, S3, Redis, etc.).
+*   **Containerization:** All services packaged as Docker images.
+*   **Orchestration:** Kubernetes (EKS) for deploying, scaling, and managing microservices.
+*   **CI/CD Pipeline (GitHub Actions):**
+    *   **Build:** Linting, unit tests, integration tests, Docker image build, push to ECR (Elastic Container Registry).
+    *   **Deployment:** Automated deployment to staging environment on merge to `develop` branch. Manual/automated deployment to production on merge to `main` branch.
+    *   **Secrets:** Handled via GitHub Actions secrets and AWS Secrets Manager.
+*   **Network:** AWS VPC, private subnets for sensitive resources (DBs), public subnets for load balancers. Network security groups.
+*   **DNS:** AWS Route 53 for custom domain mapping.
+
+## 10. Testing Strategy
+
+Testing is integrated into the development process using a Test-Driven Development (TDD) approach, with a focus on simplicity and efficiency.
+
+### 10.1. Testing Hierarchy
+
+1.  **Unit Tests (Pure Functions & Simple Logic First):**
+    *   **Goal:** Verify the smallest testable parts of an application in isolation.
+    *   **Focus:** Pure functions, utility classes, data transformations, Pydantic model validations, ORM model definitions (without full DB connection).
+    *   **Approach:** Start with `happy paths`. Test simple inputs and expected outputs. Gradually add edge cases (e.g., empty inputs, invalid formats, boundary conditions).
+    *   **Mocking:** Minimal. Use real objects where possible. Only mock external dependencies.
+    *   **Tools:** `pytest` (Python), `Jest` (JavaScript/TypeScript).
+
+2.  **Integration Tests (Minimal Setup):**
+    *   **Goal:** Verify interactions between different components or services.
+    *   **Focus:** API endpoints, service-to-service communication, database interactions, message queue integration.
+    *   **Approach:** Use lightweight, in-memory alternatives (e.g., SQLite in-memory DB for Python, or `testcontainers` for real short-lived Docker containers (PostgreSQL, RabbitMQ) during CI). Test an API endpoint from request to database persistence.
+    *   **Mocking:** Prefer real implementations over complex mocks. Mock external systems (e.g., SendGrid API, Google API) at their boundaries.
+    *   **Tools:** `pytest` with `httpx` and FastAPI's `TestClient` (Python), `Jest` with `msw` (Frontend).
+
+3.  **End-to-End Tests (Critical Paths Only):**
+    *   **Goal:** Simulate full user journeys through the application and verify cross-service functionality.
+    *   **Focus:** Login, create lead, convert to opportunity, close deal; create ticket, assign, respond, close.
+    *   **Approach:** Test the most critical user flows. Keep scenarios stable and maintainable. Avoid testing every minor UI interaction.
+    *   **Tools:** `Cypress` or `Playwright` (Frontend), custom scripts for backend E2E if needed.
+
+### 10.2. Mocking Strategy (Simplified Approach)
+
+*   **Design for Testability:**
+    *   **Dependency Injection:** Services will be designed to clearly receive their dependencies (e.g., database sessions, message queue clients) as constructor arguments or method parameters, making them easy to swap out with test doubles.
+    *   **Single Responsibility Principle:** Code units will be small and focused, reducing the number of dependencies to mock.
+    *   **Avoid Static Dependencies:** Minimize global state or statically accessed components.
+*   **Use Test Doubles Hierarchy:**
+    1.  **Real Implementations (Preferred):** Use actual database, Redis instances (e.g., `testcontainers`) for integration tests where practical.
+    2.  **Fake Implementations:** In-memory databases (e.g., SQLite for Python integration tests where PostgreSQL compatibility allows) or lightweight mock servers (e.g., a simple Python class mimicking an external API client) for faking complex external services.
+    3.  **Stubs:** Simple, hardcoded responses for dependent functions (`unittest.mock.MagicMock`'s `return_value`). Used when only specific return values are needed.
+    4.  **Mocks:** Objects that record interactions and allow asserting that specific methods were called with specific arguments (`unittest.mock.MagicMock` used for `assert_called_once_with`). **Use sparingly and only for verifying asynchronous interactions or complex external API calls.** Avoid over-mocking internal logic.
+*   **Mock at System Boundaries:** Mock external APIs, third-party libraries, and network calls (e.g., `requests`, `httpx`). For internal microservices, prefer integration tests where actual API calls are made to spin-up test instances of the services, or use simple fakes if setting up full service environments is too complex for a given test.
+
+### 10.3. Testing Tools & Frameworks
+
+*   **Python Backend:**
+    *   **Unit/Integration:** `pytest` (test framework), `httpx` (HTTP client), FastAPI `TestClient` (for testing FastAPI apps), `SQLAlchemy`'s test utilities (for ORM tests), `factory-boy` (for test data factories), `pytest-mock` (for simple mocking).
+    *   **Common Test Patterns:**
+        *   `@pytest.fixture` for setting up test data or client instances.
+        *   `tmp_path` fixture for temporary file system operations.
+        *   Testing request/response models with Pydantic helpers.
+        *   Using `TestClient` context manager for API tests.
+        *   `mocker.patch` for simple function/method mocks.
+*   **React Frontend:**
+    *   **Unit/Integration:** `Jest` (test runner), `React Testing Library` (for component testing), `msw` (Mock Service Worker for API mocking).
+    *   **E2E:** `Cypress` or `Playwright`.
+    *   **Common Test Patterns:**
+        *   `render` and `screen.getBy` for querying DOM elements.
+        *   `fireEvent` or `userEvent` for simulating user interactions.
+        *   `waitFor` and `findBy` for asynchronous UI updates.
+        *   `server.use(rest.get('/path', (req, res, ctx) => ...))` for mocking API responses.
+
+### 10.4. Test Data Management
+
+*   **Factories:** Use libraries like `factory-boy` (Python) or `Faker` (JS/Python) to generate realistic and controlled test data programmatically for specific test scenarios.
+*   **Seeders:** Scripts to populate a clean test database with baseline data required for a suite of tests.
+*   **Cleanup:**
+    *   For each test (or test module), ensure the database is reset to a known state (e.g., truncate tables, rollback transactions, or use a fresh temporary database). `pytest-postgresql` and `pytest-redis` provide fixtures for this.
+    *   For `testcontainers`, the container is typically spun up per test and destroyed afterwards, ensuring isolation.
+
+## 11. Monitoring & Logging
+
+*   **Centralized Logging:** ELK Stack (Elasticsearch, Logstash, Kibana) or AWS CloudWatch Logs for aggregating logs from all services. Structured logging (JSON format) to enable easy querying and analysis.
+*   **Metrics:** Prometheus for collecting time-series metrics from services (CPU, memory, request rates, error rates, latency, custom business metrics). Grafana for dashboarding and visualization of metrics.
+*   **Alerting:** Prometheus Alertmanager, configured to send alerts to PagerDuty/Slack for critical issues (high error rates, service downtime).
+*   **Tracing:** OpenTelemetry for distributed tracing to understand request flows across microservices and identify bottlenecks.
+*   **Health Checks:** Kubernetes liveness and readiness probes for service health.
+*   **Application Performance Monitoring (APM):** Potentially integrate third-party APM tools (e.g., Datadog, New Relic) for deeper insights.
+
+## 12. Dependencies
+
+*   **Internal:** All Cerebro microservices are dependencies of each other to varying degrees (e.g., Sales CRM depends on Contact Management, Workflow Automation depends on all core services).
+*   **External Cloud Services:** AWS (EKS, RDS, S3, ElastiCache, SQS/SNS, KMS, Route 53, CloudFront).
+*   **Third-Party APIs:** Mail/SMS gateways (SendGrid/Twilio), Google Workspace APIs (Calendar, Gmail), Microsoft 365 APIs, potentially accounting software APIs (e.g., QuickBooks, Xero), social media APIs.
+*   **Open Source Libraries/Frameworks:** Python (FastAPI, SQLAlchemy, Pydantic, pytest, scikit-learn), JavaScript (React, TypeScript, Vite, Jest, Cypress, msw).
+*   **Container Images:** PostgreSQL, Redis, RabbitMQ.
+
+## 13. Potential Risks & Mitigations
+
+*   **Risk: Data Privacy & Compliance (GDPR, CCPA):**
+    *   **Mitigation:** Implement data encryption, access controls, auditing. Build features for data export/deletion (Right to Be Forgotten). Consult legal experts.
+*   **Risk: AI Model Accuracy & Bias:**
+    *   **Mitigation:** Rigorous data quality checks. Regular model retraining and validation with diverse datasets. Monitor model performance in production. Explainable AI (XAI) where applicable for transparency.
+*   **Risk: Integration Complexity & Maintenance:**
+    *   **Mitigation:** Standardize integration patterns. Use modular design for integrations. Implement robust error handling and retry mechanisms. Proactive monitoring of external API changes and health. Prioritize integrations based on business value.
+*   **Risk: Scalability Bottlenecks with Shared Database:**
+    *   **Mitigation:** Design schemas for horizontal scaling. Use read replicas. Consider database sharding or switching to dedicated database instances per service if a single PostgreSQL instance becomes overloaded. Start with optimization at the application layer and caching.
+*   **Risk: Microservices Overhead (Development, Deployment, Operations):**
+    *   **Mitigation:** Centralized CI/CD. Comprehensive monitoring and logging. Standardized service templates. Strong DevOps culture. Start with a monorepo for core services to reduce initial complexity, splitting later if justified.
+*   **Risk: Security Vulnerabilities:**
+    *   **Mitigation:** Regular security audits, penetration testing. Automate vulnerability scanning in CI/CD. Follow OWASP Top 10 guidelines. Implement least privilege principle.
+*   **Risk: Data Loss:**
+    *   **Mitigation:** Robust backup and recovery plan. Point-in-time recovery for databases. Regular backup drills.
+*   **Risk: Vendor Lock-in (Cloud Provider):**
+    *   **Mitigation:** While using AWS fully, design services to be cloud-agnostic where possible (e.g., containerization with Docker/Kubernetes). Avoid deep reliance on proprietary AWS services if open-source alternatives suffice. This is a trade-off for speed and managed services.
+
+---
+**End of Project Plan**
